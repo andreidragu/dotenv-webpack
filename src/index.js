@@ -1,4 +1,4 @@
-import dotenv from 'dotenv-defaults'
+import dotenv from 'dotenv'
 import fs from 'fs'
 import { DefinePlugin } from 'webpack'
 
@@ -21,18 +21,26 @@ const isMainThreadElectron = (target) =>
 
 class Dotenv {
   /**
-   * The dotenv-webpack plugin.
+   * The @andreidragu/dotenv-webpack plugin.
    * @param {Object} options - The parameters.
    * @param {String} [options.path=./.env] - The location of the environment variable.
    * @param {Boolean|String} [options.safe=false] - If false ignore safe-mode, if true load `'./.env.example'`, if a string load that file as the sample.
+   * @param {Boolean} [options.allowEmptyValues=false] - If false, will throw an error if any env variables are empty (but only if safe mode is enabled).
    * @param {Boolean} [options.systemvars=false] - If true, load system environment variables.
    * @param {Boolean} [options.silent=false] - If true, suppress warnings, if false, display warnings.
+   * @param {Boolean} [options.expand=false] - If true, allows your variables to be "expanded" for reusability within your .env file.
+   * @param {Boolean|String} [options.defaults=false] - If set to true, uses ./.env.defaults. If a string, uses that location for a defaults file.
+   * @param {Boolean} [options.extraSecure=false] - If set to true, use variables from defaults to filter what can be available from path and SYSTEM. Any other secret that is accessed from path or SYSTEM and is not present in defaults will be ignored. If defaults false, then, no variable will be available.
+   * @param {Object} customVars - Custom webpack env variables. Define any other process.env variable here, instead of using webpack.DefinePlugin, in order to benefit from interpolation (dotenv expand).
+   * @example {NODE_ENV: isProduction ? 'production' : 'development'}
    * @returns {webpack.DefinePlugin}
    */
-  constructor (config = {}) {
+  constructor (options = {}, customVars = {}) {
     this.config = Object.assign({}, {
       path: './.env'
-    }, config)
+    }, options)
+    this.defaultVars = Object.assign({}, this.getDefaults())
+    this.customVars = Object.assign({}, customVars)
   }
 
   apply (compiler) {
@@ -80,16 +88,22 @@ class Dotenv {
   }
 
   initializeVars () {
-    return (this.config.systemvars) ? Object.assign({}, process.env) : {}
+    const vars = (this.config.systemvars) ? Object.assign({}, process.env) : {}
+
+    return this.getFilterByExtraSecureKeys(vars)
   }
 
   getEnvs () {
     const { path, silent, safe } = this.config
 
-    const env = dotenv.parse(this.loadFile({
-      file: path,
-      silent
-    }), this.getDefaults())
+    const pathVars = this.getFilterByExtraSecureKeys(
+      dotenv.parse(this.loadFile({
+        file: path,
+        silent
+      }))
+    )
+
+    const env = Object.assign(this.defaultVars, pathVars, this.customVars)
 
     let blueprint = env
     if (safe) {
@@ -109,17 +123,32 @@ class Dotenv {
     }
   }
 
+  getFilterByExtraSecureKeys (vars) {
+    const { extraSecure } = this.config
+
+    if (extraSecure) {
+      return Object.keys(vars)
+        .filter(key => Object.keys(this.defaultVars).some(allowedKey => allowedKey === key))
+        .reduce((obj, key) => {
+          obj[key] = vars[key]
+          return obj
+        }, {})
+    }
+
+    return vars
+  }
+
   getDefaults () {
     const { silent, defaults } = this.config
 
     if (defaults) {
-      return this.loadFile({
+      return dotenv.parse(this.loadFile({
         file: defaults === true ? './.env.defaults' : defaults,
         silent
-      })
+      }))
     }
 
-    return ''
+    return {}
   }
 
   formatData ({ variables = {}, target, version }) {

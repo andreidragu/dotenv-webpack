@@ -171,7 +171,7 @@ describe.each(versions)('%s', (_, DotenvPlugin) => {
   })
 
   describe('Simple configuration', () => {
-    test('Should load enviornment variables when they exist in the .env file.', (done) => {
+    test('Should load environment variables when they exist in the .env file.', (done) => {
       expectResultsToContainReplacements(
         new DotenvPlugin({ path: envSimple }),
         simpleResult,
